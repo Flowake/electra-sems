@@ -1,0 +1,10 @@
+[package]
+name = "sems_engine"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sems_core = { workspace = true }
+
+serde = { workspace = true, features = ["derive"] }
+uuid = { workspace = true }
