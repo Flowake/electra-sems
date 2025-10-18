@@ -1,0 +1,25 @@
+{
+  "stationId": "ELECTRA_PARIS_15",
+  "gridCapacity": 400,
+  "chargers": [
+    {
+      "id": "CP001",
+      "maxPower": 200,
+      "connectors": 2
+    },
+    {
+      "id": "CP002",
+      "maxPower": 200,
+      "connectors": 2
+    },
+    {
+      "id": "CP003",
+      "maxPower": 300,
+      "connectors": 2
+    }
+  ],
+  "battery": {
+    "initialCapacity": 200,
+    "power": 100
+  }
+}
