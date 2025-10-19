@@ -282,7 +282,7 @@ mod test_allocate_station {
                 200,
             ),
         ];
-        let chargers_config = vec_chargers_to_hashmap(&vec![
+        let chargers_config = vec_chargers_to_hashmap(&[
             ChargerConfig {
                 id: "CP001".to_string(),
                 max_power: 300,
@@ -329,7 +329,7 @@ mod test_allocate_station {
                 200,
             ),
         ];
-        let chargers_config = vec_chargers_to_hashmap(&vec![
+        let chargers_config = vec_chargers_to_hashmap(&[
             ChargerConfig {
                 id: "CP001".to_string(),
                 max_power: 100,
@@ -377,7 +377,7 @@ mod test_allocate_station {
                 200,
             ),
         ];
-        let chargers_config = vec_chargers_to_hashmap(&vec![
+        let chargers_config = vec_chargers_to_hashmap(&[
             ChargerConfig {
                 id: "CP001".to_string(),
                 max_power: 300,
@@ -424,7 +424,7 @@ mod test_allocate_station {
                 200,
             ),
         ];
-        let chargers_config = vec_chargers_to_hashmap(&vec![
+        let chargers_config = vec_chargers_to_hashmap(&[
             ChargerConfig {
                 id: "CP001".to_string(),
                 max_power: 300,
@@ -471,7 +471,7 @@ mod test_allocate_station {
                 100,
             ),
         ];
-        let chargers_config = vec_chargers_to_hashmap(&vec![
+        let chargers_config = vec_chargers_to_hashmap(&[
             ChargerConfig {
                 id: "CP001".to_string(),
                 max_power: 300,
