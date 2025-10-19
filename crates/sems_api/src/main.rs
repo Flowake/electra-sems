@@ -1,5 +1,5 @@
-use axum::{Json, Router, extract::State, routing::get};
 use clap::Parser;
+use sems_api::create_app;
 use sems_core::{StationConfig, StationState};
 use std::path::PathBuf;
 
@@ -52,10 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_state = StationState::new(station_config);
 
     // Build our application with routes
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .route("/config", get(get_config))
-        .with_state(app_state);
+    let app = create_app(app_state);
 
     // Run our app with hyper
     let bind_addr = format!("0.0.0.0:{}", args.port);
@@ -70,15 +67,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("Server error: {}", e))?;
 
     Ok(())
-}
-
-/// Health check endpoint
-async fn health_check() -> &'static str {
-    "OK"
-}
-
-/// Get current station configuration
-async fn get_config(State(app_state): State<StationState>) -> Json<StationConfig> {
-    let config = app_state.get_config().clone();
-    Json(config)
 }

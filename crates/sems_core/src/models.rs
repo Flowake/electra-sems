@@ -4,17 +4,17 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct StationConfig {
     pub station_id: String,
-    pub(crate) grid_capacity: u32,
-    pub(crate) chargers: Vec<ChargerConfig>,
-    pub(crate) battery: Option<Bess>,
+    pub grid_capacity: u32,
+    pub chargers: Vec<ChargerConfig>,
+    pub battery: Option<Bess>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChargerConfig {
-    pub(crate) id: String,
-    pub(crate) max_power: u32,
-    pub(crate) connectors: u8,
+    pub id: String,
+    pub max_power: u32,
+    pub connectors: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,10 +27,10 @@ pub struct Bess {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    pub(crate) session_id: uuid::Uuid,
-    pub(crate) connector_id: ConnectorId,
-    pub(crate) allocated_power: u32,
-    pub(crate) vehicle_max_power: u32,
+    pub session_id: uuid::Uuid,
+    pub connector_id: ConnectorId,
+    pub allocated_power: u32,
+    pub vehicle_max_power: u32,
 }
 
 impl Session {
@@ -47,6 +47,6 @@ impl Session {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectorId {
-    pub(crate) charger_id: String,
-    pub(crate) idx: u8,
+    pub charger_id: String,
+    pub idx: u8,
 }
