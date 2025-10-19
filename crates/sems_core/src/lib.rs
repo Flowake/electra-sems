@@ -1,33 +1,12 @@
 mod allocator;
+mod models;
 
+pub use crate::models::StationConfig;
+use crate::models::{ChargerConfig, ConnectorId, Session};
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StationConfig {
-    station_id: String,
-    grid_capacity: u32,
-    chargers: Vec<ChargerConfig>,
-    battery: Option<Bess>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChargerConfig {
-    id: String,
-    max_power: u32,
-    connectors: u8,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Bess {
-    initial_capacity: u32,
-    power: u32,
-}
 
 #[derive(Error, Debug)]
 pub enum SessionError {
@@ -41,35 +20,8 @@ pub enum SessionError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Session {
-    session_id: uuid::Uuid,
-    connector_id: ConnectorId,
-    allocated_power: u32,
-    vehicle_max_power: u32,
-}
-
-impl Session {
-    fn new(connector_id: ConnectorId, vehicle_max_power: u32) -> Self {
-        Session {
-            session_id: uuid::Uuid::new_v4(),
-            connector_id,
-            allocated_power: 0,
-            vehicle_max_power,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectorId {
-    pub charger_id: String,
-    idx: u8,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct StationState {
-    config: StationConfig,
+    pub config: StationConfig,
     sessions: HashMap<uuid::Uuid, Session>,
     chargers: HashMap<String, ChargerConfig>,
 }
