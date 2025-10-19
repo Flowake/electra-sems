@@ -2,120 +2,6 @@ use std::collections::HashMap;
 
 use crate::{ChargerConfig, Session};
 
-fn allocate_connector(sessions: &[Session], charger_capacity: u32) -> Vec<Session> {
-    let mut out_sessions: Vec<Session> = sessions
-        .iter()
-        .map(|s| {
-            let mut out = s.clone();
-            out.allocated_power = 0;
-            out
-        })
-        .collect();
-
-    loop {
-        // We compute the remaning power available for the connector
-        let remaining_power =
-            charger_capacity - out_sessions.iter().map(|s| s.allocated_power).sum::<u32>();
-        // We count the number of vehicles which could take the remaining power
-        let sessions_with_remaining_power = out_sessions
-            .iter()
-            .filter(|s| s.allocated_power < s.vehicle_max_power)
-            .count();
-        // If we have no power to share or no vehicles left to take the remaining power,
-        // the sharing loop is complete
-        if remaining_power == 0 || sessions_with_remaining_power == 0 {
-            break;
-        }
-        // We split the remaining power between the vehicles
-        let fair_share = remaining_power as usize / sessions_with_remaining_power;
-        // We attribute
-        out_sessions
-            .iter_mut()
-            .filter(|s| s.allocated_power < s.vehicle_max_power)
-            .for_each(|s| {
-                s.allocated_power =
-                    (s.allocated_power + fair_share as u32).min(s.vehicle_max_power);
-            });
-    }
-    out_sessions
-}
-
-#[cfg(test)]
-mod test_allocate_connector {
-    use super::*;
-    use crate::ConnectorId;
-
-    fn assert_eq_allocated_power(
-        before: &Session,
-        after_sessions: &[Session],
-        allocated_power: u32,
-    ) {
-        assert_eq!(
-            after_sessions
-                .iter()
-                .find(|s| s.session_id == before.session_id)
-                .expect("Could not find section")
-                .allocated_power,
-            allocated_power
-        )
-    }
-
-    fn get_sessions() -> Vec<Session> {
-        vec![
-            Session::new(
-                ConnectorId {
-                    charger_id: "CP001".into(),
-                    idx: 1,
-                },
-                100,
-            ),
-            Session::new(
-                ConnectorId {
-                    charger_id: "CP001".into(),
-                    idx: 2,
-                },
-                150,
-            ),
-        ]
-    }
-
-    #[test]
-    /// Low capacity available, no vehicle at full power
-    fn test_no_max_power() {
-        let sessions = get_sessions();
-        let out_sessions = allocate_connector(&sessions, 100);
-        assert_eq_allocated_power(&sessions[0], &out_sessions, 50);
-        assert_eq_allocated_power(&sessions[1], &out_sessions, 50);
-    }
-
-    #[test]
-    /// Low capacity available, one vehicle at max power
-    fn test_partial_max_power() {
-        let sessions = get_sessions();
-        let out_sessions = allocate_connector(&sessions, 200);
-        assert_eq_allocated_power(&sessions[0], &out_sessions, 100);
-        assert_eq_allocated_power(&sessions[1], &out_sessions, 100);
-    }
-
-    #[test]
-    /// High capacity available, all vehicle at max power
-    fn test_all_max_power() {
-        let sessions = get_sessions();
-        let out_sessions = allocate_connector(&sessions, 250);
-        assert_eq_allocated_power(&sessions[0], &out_sessions, 100);
-        assert_eq_allocated_power(&sessions[1], &out_sessions, 150);
-    }
-
-    #[test]
-    /// High capacity available, all vehicle at max power, remaining capacity
-    fn test_all_max_power_remaining() {
-        let sessions = get_sessions();
-        let out_sessions = allocate_connector(&sessions, 300);
-        assert_eq_allocated_power(&sessions[0], &out_sessions, 100);
-        assert_eq_allocated_power(&sessions[1], &out_sessions, 150);
-    }
-}
-
 fn allocate_power_station(
     current_sessions: &HashMap<uuid::Uuid, Session>,
     chargers_config: &HashMap<String, ChargerConfig>,
@@ -197,25 +83,34 @@ fn allocate_power_station(
             .collect();
         // We split the remaining power between the vehicles
         let fair_share =
-            remaining_power as usize / sessions_with_remaining_power.values().sum::<usize>();
+            remaining_power / sessions_with_remaining_power.values().sum::<usize>() as u32;
         // We share the power between the stations that can still take power
         for (charger_id, charger_sessions) in chargers_sessions
             .iter_mut()
             .filter(|(charger_id, _)| sessions_with_remaining_power.contains_key(*charger_id))
         {
-            let additional_power: usize = sessions_with_remaining_power
+            let sessions_with_remaining_power_for_charger = *sessions_with_remaining_power
                 .get(charger_id)
                 .expect("We filtered the HashMap, so this key should exist")
-                * fair_share;
+                as u32;
+            let additional_power = sessions_with_remaining_power_for_charger * fair_share;
             let current_allocated_power: u32 =
                 charger_sessions.iter().map(|s| s.allocated_power).sum();
-            let new_allocated_power = (current_allocated_power + additional_power as u32).min(
+            let power_to_allocate = (additional_power as u32).min(
                 chargers_config
                     .get(charger_id)
                     .expect("Charger config not found")
-                    .max_power,
+                    .max_power
+                    - current_allocated_power,
             );
-            *charger_sessions = allocate_connector(charger_sessions, new_allocated_power)
+            charger_sessions
+                .iter_mut()
+                .filter(|session| session.allocated_power < session.vehicle_max_power)
+                .for_each(|session| {
+                    session.allocated_power = (session.allocated_power
+                        + power_to_allocate / sessions_with_remaining_power_for_charger)
+                        .min(session.vehicle_max_power)
+                })
         }
     }
     chargers_sessions
@@ -229,6 +124,7 @@ mod test_allocate_station {
     use super::*;
     use crate::ConnectorId;
 
+    #[track_caller]
     fn assert_eq_allocated_power(
         before: &Session,
         after_sessions: &HashMap<uuid::Uuid, Session>,
@@ -495,6 +391,52 @@ mod test_allocate_station {
         assert_eq_allocated_power(&sessions[0], &out_sessions, 100);
         assert_eq_allocated_power(&sessions[1], &out_sessions, 100);
         assert_eq_allocated_power(&sessions[2], &out_sessions, 100);
+    }
+
+    #[test]
+    fn test_fairness_accross_chargers() {
+        let sessions = vec![
+            Session::new(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 1,
+                },
+                80,
+            ),
+            Session::new(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 2,
+                },
+                150,
+            ),
+            Session::new(
+                ConnectorId {
+                    charger_id: "CP002".into(),
+                    idx: 1,
+                },
+                150,
+            ),
+        ];
+        let chargers_config = vec_chargers_to_hashmap(&[
+            ChargerConfig {
+                id: "CP001".to_string(),
+                max_power: 200,
+                connectors: 2,
+            },
+            ChargerConfig {
+                id: "CP002".to_string(),
+                max_power: 200,
+                connectors: 2,
+            },
+        ]);
+
+        let out_sessions =
+            allocate_power_station(&vec_session_to_hashmap(&sessions), &chargers_config, 330);
+
+        assert_eq_allocated_power(&sessions[0], &out_sessions, 80);
+        assert_eq_allocated_power(&sessions[1], &out_sessions, 120);
+        assert_eq_allocated_power(&sessions[2], &out_sessions, 130);
     }
 }
 
