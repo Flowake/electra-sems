@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 serde = { workspace = true , features = ["derive"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
+thiserror = { workspace = true }

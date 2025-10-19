@@ -8,3 +8,4 @@ sems_core = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
 uuid = { workspace = true }
+thiserror = { workspace = true }

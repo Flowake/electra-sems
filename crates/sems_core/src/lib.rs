@@ -3,6 +3,7 @@ mod allocator;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +27,14 @@ pub struct ChargerConfig {
 pub struct Bess {
     initial_capacity: u32,
     power: u32,
+}
+
+#[derive(Error, Debug)]
+pub enum SessionError {
+    #[error("Connector {connector_id:?} is already in use by another session")]
+    ConnectorAlreadyInUse { connector_id: ConnectorId },
+    #[error("Connector {connector_id:?} does not exist in the station configuration")]
+    ConnectorNotFound { connector_id: ConnectorId },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,34 +124,67 @@ impl StationState {
             .min(station_remaining_capacity)
     }
 
-    pub fn start_session(&mut self, connector_id: ConnectorId, vehicle_max_power: u32) -> Session {
+    pub fn start_session(
+        &mut self,
+        connector_id: ConnectorId,
+        vehicle_max_power: u32,
+    ) -> Result<Session, SessionError> {
+        // Check if the connector exists in the station configuration
+        if let Some(charger) = self.chargers.get(&connector_id.charger_id) {
+            if connector_id.idx == 0 || connector_id.idx > charger.connectors {
+                return Err(SessionError::ConnectorNotFound {
+                    connector_id: connector_id.clone(),
+                });
+            }
+        } else {
+            return Err(SessionError::ConnectorNotFound {
+                connector_id: connector_id.clone(),
+            });
+        }
+
+        // Check if the connector is already in use
+        if self
+            .sessions
+            .values()
+            .any(|session| session.connector_id == connector_id)
+        {
+            return Err(SessionError::ConnectorAlreadyInUse { connector_id });
+        }
+        let station_remaining_capacity = self.station_remaining_capacity();
+        let charger_remaining_capacity = self.charger_remaining_capacity(&connector_id.charger_id);
+
+        // The session cannot exceed this capacity
+        let hardcap_capacity = station_remaining_capacity.min(charger_remaining_capacity);
+
         let new_session = Session::new(connector_id, vehicle_max_power);
+        let mut current_sessions = self.sessions.clone();
+        current_sessions.insert(new_session.session_id, new_session.clone());
+
+        let mut reallocated_sessions = allocator::allocate_power_station(
+            &current_sessions,
+            &self.chargers,
+            self.config.grid_capacity,
+        );
+        let mut allocated_session = reallocated_sessions
+            .remove_entry(&new_session.session_id)
+            .expect("Could not find allocated session")
+            .1;
+
+        // The reallocation might lower the power for other sessions, but it will not be effective
+        // immediately (not until their next call to power_update). As such we need to ensure that
+        // we do not exceed the capacity.
+        allocated_session.allocated_power = allocated_session.allocated_power.min(hardcap_capacity);
         self.sessions
-            .insert(new_session.session_id, new_session.clone());
-        new_session
+            .insert(new_session.session_id, allocated_session.clone());
+        Ok(allocated_session)
     }
 
     pub fn stop_session(&mut self, session_id: uuid::Uuid) {
         self.sessions.remove(&session_id);
     }
 
-    /// Update the power allocation for a session.
-    ///
-    /// The allocated power is updated to the new value, while ensuring
-    /// that the power allocation does not exceed the remaining capacity of the charger
-    /// and the station's total capacity.
     pub fn power_update(&mut self, session_id: uuid::Uuid, power: u32) -> Session {
-        let new_allocated_power = {
-            let session = self.sessions.get(&session_id).expect("Session not found");
-
-            power.min(self.charger_remaining_capacity(&session.connector_id.charger_id))
-        };
-        let session = self
-            .sessions
-            .get_mut(&session_id)
-            .expect("Session not found");
-        session.allocated_power = new_allocated_power;
-        session.clone()
+        todo!()
     }
 }
 
@@ -177,5 +219,180 @@ mod test {
 
     fn default_state() -> StationState {
         StationState::new(default_config())
+    }
+
+    #[test]
+    fn test_connector_already_in_use() {
+        let mut state = default_state();
+        let connector_id = ConnectorId {
+            charger_id: "CP001".into(),
+            idx: 1,
+        };
+
+        // First session should succeed
+        let result1 = state.start_session(connector_id.clone(), 100);
+        assert!(result1.is_ok());
+
+        // Second session on same connector should fail
+        let result2 = state.start_session(connector_id.clone(), 50);
+        assert!(result2.is_err());
+
+        match result2 {
+            Err(SessionError::ConnectorAlreadyInUse {
+                connector_id: err_connector_id,
+            }) => {
+                assert_eq!(err_connector_id, connector_id);
+            }
+            _ => panic!("Expected ConnectorAlreadyInUse error"),
+        }
+
+        // Different connector should still work
+        let different_connector = ConnectorId {
+            charger_id: "CP001".into(),
+            idx: 2,
+        };
+        let result3 = state.start_session(different_connector, 75);
+        assert!(result3.is_ok());
+    }
+
+    #[test]
+    fn test_connector_not_found() {
+        let mut state = default_state();
+
+        // Test non-existent charger
+        let invalid_charger = ConnectorId {
+            charger_id: "INVALID".into(),
+            idx: 1,
+        };
+
+        let result = state.start_session(invalid_charger.clone(), 100);
+        assert!(result.is_err());
+
+        match result {
+            Err(SessionError::ConnectorNotFound {
+                connector_id: err_connector_id,
+            }) => {
+                assert_eq!(err_connector_id, invalid_charger);
+            }
+            _ => panic!("Expected ConnectorNotFound error"),
+        }
+
+        // Test invalid connector index (0)
+        let invalid_idx_zero = ConnectorId {
+            charger_id: "CP001".into(),
+            idx: 0,
+        };
+
+        let result = state.start_session(invalid_idx_zero.clone(), 100);
+        assert!(result.is_err());
+
+        match result {
+            Err(SessionError::ConnectorNotFound {
+                connector_id: err_connector_id,
+            }) => {
+                assert_eq!(err_connector_id, invalid_idx_zero);
+            }
+            _ => panic!("Expected ConnectorNotFound error"),
+        }
+
+        // Test invalid connector index (too high)
+        let invalid_idx_high = ConnectorId {
+            charger_id: "CP001".into(),
+            idx: 5, // CP001 only has 2 connectors
+        };
+
+        let result = state.start_session(invalid_idx_high.clone(), 100);
+        assert!(result.is_err());
+
+        match result {
+            Err(SessionError::ConnectorNotFound {
+                connector_id: err_connector_id,
+            }) => {
+                assert_eq!(err_connector_id, invalid_idx_high);
+            }
+            _ => panic!("Expected ConnectorNotFound error"),
+        }
+
+        // Test valid connector should work
+        let valid_connector = ConnectorId {
+            charger_id: "CP001".into(),
+            idx: 1,
+        };
+
+        let result = state.start_session(valid_connector, 100);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_start_session() {
+        let mut state = default_state();
+
+        let session_1 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 1,
+                },
+                100,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_1.allocated_power, 100);
+
+        // Starting a session with a greater max_power
+        // hitting the charger capacity
+        let session_2 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 2,
+                },
+                200,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_2.allocated_power, 100);
+
+        // Starting a session on another charger,
+        // reaching grid capacity
+        let session_3 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP003".into(),
+                    idx: 1,
+                },
+                300,
+            )
+            .expect("Could not create the session");
+        assert_eq!(session_3.allocated_power, 200);
+
+        // Starting a session on a new charger,
+        // but no capacity left
+        let session_4 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP002".into(),
+                    idx: 1,
+                },
+                200,
+            )
+            .expect("Could not create the session");
+        assert_eq!(session_4.allocated_power, 0);
+
+        // Removing a session to free some capacity and adding a new session
+        // that will receive its fair share.
+        state.stop_session(session_3.session_id);
+
+        let session_5 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP002".into(),
+                    idx: 2,
+                },
+                200,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_5.allocated_power, 100);
     }
 }

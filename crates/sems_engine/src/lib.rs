@@ -1,4 +1,4 @@
-use sems_core::{ConnectorId, Session, StationConfig, StationState};
+use sems_core::{ConnectorId, Session, SessionError, StationConfig, StationState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,7 +39,7 @@ impl Engine {
         }
     }
 
-    pub fn start_session(&mut self, start_session: StartSession) -> Session {
+    pub fn start_session(&mut self, start_session: StartSession) -> Result<Session, SessionError> {
         self.station_state
             .start_session(start_session.connector_id, start_session.vehicle_max_power)
     }
