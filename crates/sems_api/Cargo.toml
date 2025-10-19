@@ -1,0 +1,15 @@
+[package]
+name = "sems_api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sems_core = {workspace =true}
+
+tokio = { workspace = true , features = ["full"]}
+axum = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = {workspace = true}
+clap = { workspace = true, features = ["derive"] }
+tracing = {workspace = true}
+tracing-subscriber = {workspace = true}

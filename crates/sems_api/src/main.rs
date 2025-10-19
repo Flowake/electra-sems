@@ -1,10 +1,6 @@
-mod app_state;
-mod config;
-
-use app_state::AppState;
 use axum::{Json, Router, extract::State, routing::get};
 use clap::Parser;
-use config::StationConfig;
+use sems_core::{StationConfig, StationState};
 use std::path::PathBuf;
 
 /// Command line arguments for the electra-sems server
@@ -53,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Create application state
-    let app_state = AppState::new(station_config);
+    let app_state = StationState::new(station_config);
 
     // Build our application with routes
     let app = Router::new()
@@ -82,7 +78,7 @@ async fn health_check() -> &'static str {
 }
 
 /// Get current station configuration
-async fn get_config(State(app_state): State<AppState>) -> Json<StationConfig> {
-    let config = app_state.get_station_config().clone();
+async fn get_config(State(app_state): State<StationState>) -> Json<StationConfig> {
+    let config = app_state.get_config().clone();
     Json(config)
 }

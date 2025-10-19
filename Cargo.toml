@@ -7,6 +7,7 @@ sems_core = { path = "crates/sems_core" }
 
 axum = "0.8"
 anyhow = "1"
+clap = "4"
 hyper = "1.7"
 tokio = "1.48"
 tower = "0.4"

@@ -21,7 +21,7 @@ pub enum SessionError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StationState {
-    pub config: StationConfig,
+    config: StationConfig,
     sessions: HashMap<uuid::Uuid, Session>,
     chargers: HashMap<String, ChargerConfig>,
 }
@@ -38,6 +38,14 @@ impl StationState {
             chargers,
             sessions: HashMap::new(),
         }
+    }
+
+    pub fn get_config(&self) -> &StationConfig {
+        &self.config
+    }
+
+    pub fn get_sessions(&self) -> &HashMap<uuid::Uuid, Session> {
+        &self.sessions
     }
 
     /// Return the total allocated power of the station.
