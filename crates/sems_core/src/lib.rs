@@ -35,6 +35,8 @@ pub enum SessionError {
     ConnectorAlreadyInUse { connector_id: ConnectorId },
     #[error("Connector {connector_id:?} does not exist in the station configuration")]
     ConnectorNotFound { connector_id: ConnectorId },
+    #[error("Session {session_id} not found")]
+    SessionNotFound { session_id: uuid::Uuid },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,41 +152,53 @@ impl StationState {
         {
             return Err(SessionError::ConnectorAlreadyInUse { connector_id });
         }
-        let station_remaining_capacity = self.station_remaining_capacity();
-        let charger_remaining_capacity = self.charger_remaining_capacity(&connector_id.charger_id);
 
-        // The session cannot exceed this capacity
-        let hardcap_capacity = station_remaining_capacity.min(charger_remaining_capacity);
-
-        let new_session = Session::new(connector_id, vehicle_max_power);
-        let mut current_sessions = self.sessions.clone();
-        current_sessions.insert(new_session.session_id, new_session.clone());
-
-        let mut reallocated_sessions = allocator::allocate_power_station(
-            &current_sessions,
+        let new_session = allocator::allocate_for_new_session(
+            self.sessions.clone(),
             &self.chargers,
             self.config.grid_capacity,
+            self.charger_remaining_capacity(&connector_id.charger_id),
+            &Session::new(connector_id, vehicle_max_power),
         );
-        let mut allocated_session = reallocated_sessions
-            .remove_entry(&new_session.session_id)
-            .expect("Could not find allocated session")
-            .1;
 
-        // The reallocation might lower the power for other sessions, but it will not be effective
-        // immediately (not until their next call to power_update). As such we need to ensure that
-        // we do not exceed the capacity.
-        allocated_session.allocated_power = allocated_session.allocated_power.min(hardcap_capacity);
         self.sessions
-            .insert(new_session.session_id, allocated_session.clone());
-        Ok(allocated_session)
+            .insert(new_session.session_id, new_session.clone());
+        Ok(new_session)
     }
 
     pub fn stop_session(&mut self, session_id: uuid::Uuid) {
         self.sessions.remove(&session_id);
     }
 
-    pub fn power_update(&mut self, session_id: uuid::Uuid, power: u32) -> Session {
-        todo!()
+    /// If the consumed power is lower than the allocated power, then this
+    /// will set this consumed power as the `vehicle_max_power` of the session,
+    /// to free the power for other sessions.
+    pub fn power_update(
+        &mut self,
+        session_id: uuid::Uuid,
+        consumed_power: u32,
+    ) -> Result<Session, SessionError> {
+        let Some(mut previous_session) = self.sessions.get(&session_id).cloned() else {
+            return Err(SessionError::SessionNotFound { session_id });
+        };
+
+        if consumed_power < previous_session.allocated_power {
+            previous_session.vehicle_max_power = consumed_power;
+        }
+
+        let reallocated_session = allocator::allocate_for_new_session(
+            self.sessions.clone(),
+            &self.chargers,
+            self.config.grid_capacity,
+            self.charger_remaining_capacity(&previous_session.connector_id.charger_id)
+                + previous_session.allocated_power,
+            &previous_session,
+        );
+
+        self.sessions
+            .insert(reallocated_session.session_id, reallocated_session.clone());
+
+        Ok(reallocated_session)
     }
 }
 
@@ -394,5 +408,182 @@ mod test {
             .expect("Could not create the session");
 
         assert_eq!(session_5.allocated_power, 100);
+    }
+
+    #[test]
+    fn test_power_update_session_not_found() {
+        let mut state = default_state();
+        let non_existent_session_id = uuid::Uuid::new_v4();
+
+        // Try to update power for a non-existent session
+        let result = state.power_update(non_existent_session_id, 150);
+        assert!(result.is_err());
+
+        match result {
+            Err(SessionError::SessionNotFound { session_id }) => {
+                assert_eq!(session_id, non_existent_session_id);
+            }
+            _ => panic!("Expected SessionNotFound error"),
+        }
+
+        // Test successful power update
+        let connector_id = ConnectorId {
+            charger_id: "CP001".into(),
+            idx: 1,
+        };
+        let session = state
+            .start_session(connector_id, 100)
+            .expect("Could not create session");
+
+        let result = state.power_update(session.session_id, 80);
+        assert!(result.is_ok());
+
+        if let Ok(updated_session) = result {
+            assert_eq!(updated_session.vehicle_max_power, 80);
+        }
+    }
+
+    #[test]
+    fn test_power_update() {
+        let mut state = default_state();
+
+        let session_1 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 1,
+                },
+                100,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_1.allocated_power, 100);
+
+        // Starting a session with a greater max_power
+        // hitting the charger capacity
+        let session_2 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 2,
+                },
+                200,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_2.allocated_power, 100);
+
+        // Then we update the power for the session_1, which should
+        // have a lower max_power and allocated value
+        let session_1 = state
+            .power_update(session_1.session_id, 80)
+            .expect("Error while updating power");
+        assert_eq!(session_1.vehicle_max_power, 80);
+        assert_eq!(session_1.allocated_power, 80);
+    }
+
+    #[test]
+    fn test_power_update_full_charger() {
+        let mut state = default_state();
+
+        let session_1 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 1,
+                },
+                200,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_1.allocated_power, 200);
+
+        // Starting a session with a greater max_power
+        // hitting the charger capacity
+        let session_2 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 2,
+                },
+                200,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_2.allocated_power, 0);
+
+        // Then we update the power for the session_1, which consume
+        // less than its allocated power.
+        let session_1 = state
+            .power_update(session_1.session_id, 80)
+            .expect("Error while updating power");
+        assert_eq!(session_1.vehicle_max_power, 80);
+        assert_eq!(session_1.allocated_power, 80);
+
+        // And we update session_2, which should receive more power
+        // as some have been freed.
+        let session_2 = state
+            .power_update(session_2.session_id, 0)
+            .expect("Error while updating power");
+        assert_eq!(session_2.vehicle_max_power, 200);
+        assert_eq!(session_2.allocated_power, 120);
+    }
+
+    #[test]
+    fn test_power_update_accross_chargers() {
+        let mut state = default_state();
+
+        let session_1 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 1,
+                },
+                100,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_1.allocated_power, 100);
+
+        // Starting a session with a greater max_power
+        // hitting the charger capacity
+        let session_2 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP001".into(),
+                    idx: 2,
+                },
+                200,
+            )
+            .expect("Could not create the session");
+
+        assert_eq!(session_2.allocated_power, 100);
+
+        // Starting a session on another charger,
+        // reaching grid capacity
+        let session_3 = state
+            .start_session(
+                ConnectorId {
+                    charger_id: "CP003".into(),
+                    idx: 1,
+                },
+                300,
+            )
+            .expect("Could not create the session");
+        assert_eq!(session_3.allocated_power, 200);
+
+        // Lowering the power on the first session
+        let session_1 = state
+            .power_update(session_1.session_id, 80)
+            .expect("Could not update power");
+        assert_eq!(session_1.vehicle_max_power, 80);
+        assert_eq!(session_1.allocated_power, 80);
+
+        // Then session_3 update its power usage, and should receive more power
+        let session_3 = state
+            .power_update(session_3.session_id, 200)
+            .expect("Could not update power");
+        assert_eq!(session_3.vehicle_max_power, 300);
+        assert_eq!(session_3.allocated_power, 200);
     }
 }

@@ -116,7 +116,7 @@ mod test_allocate_connector {
     }
 }
 
-pub(crate) fn allocate_power_station(
+fn allocate_power_station(
     current_sessions: &HashMap<uuid::Uuid, Session>,
     chargers_config: &HashMap<String, ChargerConfig>,
     station_capacity: u32,
@@ -496,4 +496,28 @@ mod test_allocate_station {
         assert_eq_allocated_power(&sessions[1], &out_sessions, 100);
         assert_eq_allocated_power(&sessions[2], &out_sessions, 100);
     }
+}
+
+pub(crate) fn allocate_for_new_session(
+    mut sessions: HashMap<uuid::Uuid, Session>,
+    chargers_config: &HashMap<String, ChargerConfig>,
+    grid_capacity: u32,
+    hardcap_capacity: u32,
+    new_session: &Session,
+) -> Session {
+    sessions.insert(new_session.session_id, new_session.clone());
+
+    let mut reallocated_sessions =
+        allocate_power_station(&sessions, chargers_config, grid_capacity);
+    let mut new_allocated_session = reallocated_sessions
+        .remove_entry(&new_session.session_id)
+        .expect("Could not find allocated session")
+        .1;
+
+    // The reallocation might lower the power for other sessions, but it will not be effective
+    // immediately (not until their next call to power_update). As such we need to ensure that
+    // we do not exceed the hardcap capacity.
+    new_allocated_session.allocated_power =
+        new_allocated_session.allocated_power.min(hardcap_capacity);
+    new_allocated_session
 }
