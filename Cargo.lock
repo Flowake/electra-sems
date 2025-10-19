@@ -543,16 +543,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sems_engine"
-version = "0.1.0"
-dependencies = [
- "sems_core",
- "serde",
- "thiserror",
- "uuid",
-]
-
-[[package]]
 name = "serde"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"

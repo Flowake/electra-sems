@@ -4,7 +4,6 @@ members = ["crates/*"]
 
 [workspace.dependencies]
 sems_core = { path = "crates/sems_core" }
-sems_engine = { path = "crates/sems_engine" }
 
 axum = "0.8"
 anyhow = "1"
