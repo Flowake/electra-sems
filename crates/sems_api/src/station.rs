@@ -2,6 +2,7 @@ use axum::{Json, extract::State};
 use sems_core::{Session, StationConfig, StationState};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[derive(Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -10,14 +11,20 @@ pub struct StationStatus {
 }
 
 /// Get current station configuration
-pub async fn get_station_config(State(app_state): State<StationState>) -> Json<StationConfig> {
-    let config = app_state.get_config().clone();
+pub async fn get_station_config(
+    State(app_state): State<Arc<Mutex<StationState>>>,
+) -> Json<StationConfig> {
+    let state = app_state.lock().unwrap();
+    let config = state.get_config().clone();
     Json(config)
 }
 
 /// Get station status with all current sessions
-pub async fn get_station_status(State(app_state): State<StationState>) -> Json<StationStatus> {
-    let sessions = app_state.get_sessions().clone();
+pub async fn get_station_status(
+    State(app_state): State<Arc<Mutex<StationState>>>,
+) -> Json<StationStatus> {
+    let state = app_state.lock().unwrap();
+    let sessions = state.get_sessions().clone();
     Json(StationStatus { sessions })
 }
 
@@ -35,10 +42,11 @@ mod tests {
 
     /// Create the application router with all endpoints
     pub fn create_app(app_state: StationState) -> Router {
+        let shared_state = Arc::new(Mutex::new(app_state));
         Router::new()
             .route("/station/config", get(get_station_config))
             .route("/station/status", get(get_station_status))
-            .with_state(app_state)
+            .with_state(shared_state)
     }
 
     fn test_station_config() -> StationConfig {
