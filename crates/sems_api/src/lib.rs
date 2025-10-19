@@ -11,6 +11,7 @@ use axum::{
 };
 use sems_core::StationState;
 use std::sync::{Arc, Mutex};
+use tower_http::trace::TraceLayer;
 
 /// Health check endpoint
 pub async fn health_check() -> &'static str {
@@ -30,6 +31,7 @@ pub fn create_app(app_state: StationState) -> Router {
             "/sessions/{session_id}/power-update",
             post(session::power_update),
         )
+        .layer(TraceLayer::new_for_http())
         .with_state(shared_state)
 }
 

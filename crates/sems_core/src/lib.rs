@@ -90,6 +90,7 @@ impl StationState {
         connector_id: ConnectorId,
         vehicle_max_power: u32,
     ) -> Result<Session, SessionError> {
+        tracing::info!("Starting session for connector {}", connector_id);
         // Check if the connector exists in the station configuration
         if let Some(charger) = self.chargers.get(&connector_id.charger_id) {
             if connector_id.idx == 0 || connector_id.idx > charger.connectors {
@@ -126,6 +127,7 @@ impl StationState {
     }
 
     pub fn stop_session(&mut self, session_id: uuid::Uuid) {
+        tracing::info!("Stopping session {}", session_id);
         self.sessions.remove(&session_id);
     }
 
@@ -137,6 +139,7 @@ impl StationState {
         session_id: uuid::Uuid,
         consumed_power: u32,
     ) -> Result<Session, SessionError> {
+        tracing::info!("Updating power for session {}", session_id);
         let Some(mut previous_session) = self.sessions.get(&session_id).cloned() else {
             return Err(SessionError::SessionNotFound { session_id });
         };

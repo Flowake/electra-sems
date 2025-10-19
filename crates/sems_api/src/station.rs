@@ -14,6 +14,7 @@ pub struct StationStatus {
 pub async fn get_station_config(
     State(app_state): State<Arc<Mutex<StationState>>>,
 ) -> Json<StationConfig> {
+    tracing::info!("Getting station configuration");
     let state = app_state.lock().unwrap();
     let config = state.get_config().clone();
     Json(config)
@@ -23,6 +24,7 @@ pub async fn get_station_config(
 pub async fn get_station_status(
     State(app_state): State<Arc<Mutex<StationState>>>,
 ) -> Json<StationStatus> {
+    tracing::info!("Getting station status");
     let state = app_state.lock().unwrap();
     let sessions = state.get_sessions().clone();
     Json(StationStatus { sessions })

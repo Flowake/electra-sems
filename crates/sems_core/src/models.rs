@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,4 +51,10 @@ impl Session {
 pub struct ConnectorId {
     pub charger_id: String,
     pub idx: u8,
+}
+
+impl Display for ConnectorId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.charger_id, self.idx)
+    }
 }
