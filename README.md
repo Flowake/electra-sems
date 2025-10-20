@@ -40,13 +40,14 @@ A smart energy management system for electric vehicle charging stations that opt
 ### Station endpoints
 
 - **GET** `/station/config` - Current station configuration
+- **POST** `/station/config` - Change station configuration
 - **GET** `/station/status` - Current active sessions
 
 ### Session endpoints
 
 - **POST** `/sessions` - Start charging session
-- **PUT** `/sessions/{id}/power` - Update session power demand
-- **DELETE** `/sessions/{id}` - End charging session
+- **POST** `/sessions/{id}/power-update` - Update session power demand
+- **POST** `/sessions/{id}/stop` - End charging session
 
 ## Configuration
 
@@ -144,15 +145,8 @@ is at capacity. Then 5 kW is split among one available EV:
 - **Rust**: Chosen for memory safety, performance, and excellent concurrency support
 - **Axum**: Modern async web framework for high-performance APIs
 - **Workspace Structure**: Separates core business logic (`sems_core`) from API layer (`sems_api`)
-- **Immutable Configuration**: Station config loaded once at startup for simplicity and performance
 - **In-Memory State**: Simple and fast for a technical test. A database would be better suited for production.
 
 ## Testing
-
-The project includes comprehensive unit tests for:
-- Power allocation algorithms
-- Session lifecycle management
-- API endpoint behaviors
-- Edge cases and error conditions
 
 Run `cargo test` to execute the full test suite.

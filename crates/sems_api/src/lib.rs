@@ -23,7 +23,10 @@ pub fn create_app(app_state: StationState) -> Router {
     let shared_state = Arc::new(Mutex::new(app_state));
     Router::new()
         .route("/health", get(health_check))
-        .route("/station/config", get(station::get_station_config))
+        .route(
+            "/station/config",
+            get(station::get_station_config).post(station::update_station_config),
+        )
         .route("/station/status", get(station::get_station_status))
         .route("/sessions", post(session::create_session))
         .route("/sessions/{session_id}/stop", post(session::stop_session))

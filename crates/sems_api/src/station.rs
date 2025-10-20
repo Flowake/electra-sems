@@ -1,4 +1,4 @@
-use axum::{Json, extract::State};
+use axum::{Json, extract::State, http::StatusCode};
 use sems_core::{Session, StationConfig, StationState};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -30,6 +30,27 @@ pub async fn get_station_status(
     Json(StationStatus { sessions })
 }
 
+/// Update station configuration
+/// This creates a new StationState, dropping all existing sessions
+pub async fn update_station_config(
+    State(app_state): State<Arc<Mutex<StationState>>>,
+    Json(new_config): Json<StationConfig>,
+) -> Result<Json<StationConfig>, StatusCode> {
+    tracing::info!("Updating station configuration");
+
+    // Create new StationState with the new config (this drops all sessions)
+    let new_state = StationState::new(new_config.clone());
+
+    // Replace the current state
+    {
+        let mut state = app_state.lock().unwrap();
+        *state = new_state;
+    }
+
+    tracing::info!("Station configuration updated successfully");
+    Ok(Json(new_config))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,7 +67,10 @@ mod tests {
     pub fn create_app(app_state: StationState) -> Router {
         let shared_state = Arc::new(Mutex::new(app_state));
         Router::new()
-            .route("/station/config", get(get_station_config))
+            .route(
+                "/station/config",
+                get(get_station_config).post(update_station_config),
+            )
             .route("/station/status", get(get_station_status))
             .with_state(shared_state)
     }
@@ -159,5 +183,135 @@ mod tests {
         assert_eq!(session.connector_id.charger_id, "CP001");
         assert_eq!(session.connector_id.idx, 1);
         assert_eq!(session.vehicle_max_power, 150);
+    }
+
+    #[tokio::test]
+    async fn test_update_config_endpoint() {
+        let config = test_station_config();
+        let state = StationState::new(config);
+        let app = create_app(state);
+
+        // New configuration with different values
+        let new_config = StationConfig {
+            station_id: "NEW_STATION".into(),
+            grid_capacity: 600,
+            chargers: vec![
+                ChargerConfig {
+                    id: "CP001".into(),
+                    max_power: 250,
+                    connectors: 2,
+                },
+                ChargerConfig {
+                    id: "CP002".into(),
+                    max_power: 300,
+                    connectors: 1,
+                },
+            ],
+            battery: None,
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/station/config")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&new_config).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let config_response: StationConfig = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(config_response.station_id, "NEW_STATION");
+        assert_eq!(config_response.grid_capacity, 600);
+        assert_eq!(config_response.chargers.len(), 2);
+        assert_eq!(config_response.chargers[0].max_power, 250);
+        assert_eq!(config_response.chargers[1].id, "CP002");
+    }
+
+    #[tokio::test]
+    async fn test_update_config_drops_sessions() {
+        use sems_core::ConnectorId;
+
+        let config = test_station_config();
+        let mut state = StationState::new(config);
+
+        // Start a session before updating config
+        let connector_id = ConnectorId {
+            charger_id: "CP001".to_string(),
+            idx: 1,
+        };
+        state.start_session(connector_id, 150).unwrap();
+
+        let app = create_app(state);
+
+        // Verify we have one session initially
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/station/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let status_response: StationStatus = serde_json::from_slice(&body).unwrap();
+        assert_eq!(status_response.sessions.len(), 1);
+
+        // Update configuration
+        let new_config = StationConfig {
+            station_id: "UPDATED_STATION".into(),
+            grid_capacity: 500,
+            chargers: vec![ChargerConfig {
+                id: "CP001".into(),
+                max_power: 300,
+                connectors: 2,
+            }],
+            battery: None,
+        };
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/station/config")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&new_config).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Verify sessions are dropped after config update
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/station/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let status_response: StationStatus = serde_json::from_slice(&body).unwrap();
+        assert_eq!(status_response.sessions.len(), 0);
     }
 }
