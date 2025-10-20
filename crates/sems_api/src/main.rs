@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Initialize tracing
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().pretty().init();
 
     // Load station configuration from JSON file
     let config_content = tokio::fs::read_to_string(&args.config).await.map_err(|e| {

@@ -108,6 +108,13 @@ fn allocate_power_station(
         // We split the remaining power between the vehicles
         let fair_share =
             remaining_power / sessions_with_remaining_power.values().sum::<usize>() as u32;
+
+        if fair_share == 0 {
+            // If the fair share is 0, we cannot allocate any more power
+            // That usually means that the remaining power is less than the number of sessions
+            break;
+        }
+
         // We share the power between the stations that can still take power
         for (charger_id, charger_sessions) in chargers_sessions
             .iter_mut()

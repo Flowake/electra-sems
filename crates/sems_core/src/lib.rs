@@ -85,12 +85,13 @@ impl StationState {
             .min(station_remaining_capacity)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn start_session(
         &mut self,
         connector_id: ConnectorId,
         vehicle_max_power: u32,
     ) -> Result<Session, SessionError> {
-        tracing::info!("Starting session for connector {}", connector_id);
+        tracing::info!("Starting session");
         // Check if the connector exists in the station configuration
         if let Some(charger) = self.chargers.get(&connector_id.charger_id) {
             if connector_id.idx == 0 || connector_id.idx > charger.connectors {
@@ -126,20 +127,21 @@ impl StationState {
         Ok(new_session)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn stop_session(&mut self, session_id: uuid::Uuid) {
-        tracing::info!("Stopping session {}", session_id);
+        tracing::info!("Stopping session");
         self.sessions.remove(&session_id);
     }
 
     /// If the consumed power is lower than the allocated power, then this
     /// will set this consumed power as the `vehicle_max_power` of the session,
     /// to free the power for other sessions.
+    #[tracing::instrument(skip(self))]
     pub fn power_update(
         &mut self,
         session_id: uuid::Uuid,
         consumed_power: u32,
     ) -> Result<Session, SessionError> {
-        tracing::info!("Updating power for session {}", session_id);
         let Some(mut previous_session) = self.sessions.get(&session_id).cloned() else {
             return Err(SessionError::SessionNotFound { session_id });
         };
@@ -159,7 +161,10 @@ impl StationState {
 
         self.sessions
             .insert(reallocated_session.session_id, reallocated_session.clone());
-
+        tracing::info!(
+            "Reallocated power to {}kW",
+            reallocated_session.allocated_power,
+        );
         Ok(reallocated_session)
     }
 }

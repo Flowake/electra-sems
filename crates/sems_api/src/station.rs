@@ -36,7 +36,7 @@ pub async fn update_station_config(
     State(app_state): State<Arc<Mutex<StationState>>>,
     Json(new_config): Json<StationConfig>,
 ) -> Result<Json<StationConfig>, StatusCode> {
-    tracing::info!("Updating station configuration");
+    tracing::info!(?new_config, "Updating station configuration");
 
     // Create new StationState with the new config (this drops all sessions)
     let new_state = StationState::new(new_config.clone());
