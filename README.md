@@ -1,6 +1,6 @@
 # Electra SEMS (Station Energy Management System)
 
-A smart energy management system for electric vehicle charging stations that optimally allocates power across multiple chargers and manages battery storage.
+A smart energy management system for electric vehicle charging stations that optimally allocates power across multiple chargers.
 
 ## Quick Start
 
@@ -99,7 +99,7 @@ starting with all EVs having no allocated power:
 
 A station with 330 kW capacity has 2 chargers with 200kW capacity, with the following EVs:
 
-- Charger 1: 50kW EV and 150kW EV
+- Charger 1: 80kW EV and 150kW EV
 - Charger 2: 150kW
 
 1. Each EV should receive 110kW:
